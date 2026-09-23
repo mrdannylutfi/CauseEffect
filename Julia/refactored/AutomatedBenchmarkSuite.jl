@@ -191,3 +191,70 @@ function progressiveFloatPartition!(
     state.active_length = idx - 1
     return state
 end
+
+# type-parameterized function
+
+using BenchmarkTools
+using Test
+
+"""
+    progressiveFloatPartition!(stack::Vector{Vector{T}}, a::T, b::T; limit::Int=4, step_formula::Function=(up, low) -> up * 0.1) where {T <: AbstractFloat}
+
+Type-parameterized in-place partition function. Automatically binds `T` to the exact
+concrete subtype of `AbstractFloat` provided by the arguments.
+"""
+function progressiveFloatPartition!(
+    stack::Vector{Vector{T}},
+    a::T,
+    b::T;
+    limit::Int = 4,
+    step_formula::Function = (up, low) -> up * 0.1
+) where {T <: AbstractFloat}
+
+    empty!(stack)
+
+    const_limit = limit
+    lower = a
+    upper = b
+    res = upper
+    lastres = res
+    idx = 1
+
+    # Zero value fallback matches type T precisely
+    zero_val = zero(T)
+
+    while res >= lower && const_limit < 5
+        nonLinearPart = step_formula(upper, lower)
+
+        # Safety Assertion: enforces type consistency and blocks loop freeze
+        @assert nonLinearPart > zero_val "Loop Error: Step formula returned a non-positive value (\$nonLinearPart). Step must be > 0.0 to prevent infinite loops."
+
+        res = upper - nonLinearPart
+
+        if res >= lower
+            if idx <= length(stack)
+                stack[idx][1] = upper
+                stack[idx][2] = res
+            else
+                push!(stack, [upper, res])
+            end
+
+            upper = res
+            lastres = res
+            idx += 1
+        else
+            if lastres > lower
+                if idx <= length(stack)
+                    stack[idx][1] = upper
+                    stack[idx][2] = lower
+                else
+                    push!(stack, [upper, lower])
+                end
+            end
+            break
+        end
+    end
+
+    resize!(stack, min(idx, length(stack)))
+    return stack
+end
