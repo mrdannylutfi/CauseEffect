@@ -263,3 +263,40 @@ end
 """
 This validates that using our custom state engine structure achieves `maximum-computation` performance without any `heap-allocations`.
 """"
+@testset "Interface Integration Tests" begin
+    # Setup state
+    state = PartitionState{Float64}(10)
+    decay_step = (upper, lower) -> upper * 0.4
+    progressiveFloatPartition!(state, 1.0, 20.0; step_formula=decay_step)
+
+    @testset "Verification of Clean Printing" begin
+        println("\n" * "="^40)
+        println("DISPLAY DEMO:")
+        println("="^40)
+        # Triggers the new text/plain show rules automatically
+        display(state) 
+        println("\n" * "="^40)
+    end
+
+    @testset "Native Iteration Syntax Integration" begin
+        println("ITERATION DEMO:")
+        counter = 0
+        
+        # Test native loop capabilities
+        for pair in state
+            counter += 1
+            println("Loop step $counter: Extracted Upper is $(pair.upper)")
+            @test pair.upper > 0.0
+        end
+        
+        @test counter == length(state)
+        println("="^40)
+    end
+    
+    @testset "Zero Allocation Re-Verification" begin
+        # Confirm that implementing interfaces did not cause overhead leaks
+        allocs = @allocated progressiveFloatPartition!(state, 1.0, 20.0; step_formula=decay_step)
+        @test allocs == 0
+    end
+end
+
