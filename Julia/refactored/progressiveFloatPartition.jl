@@ -187,4 +187,102 @@ function progressiveFloatPartition!(
     return stack
 end
 
+# the transition to using a Custom Struct Type to manage the state instead of standard nested vectors.By defining 
+"""
+a dedicated mutable struct to hold your pre-allocated buffer data,
+you encapsulate the array structures clean and open up clearer object-oriented state tracking in Julia.
+"""
+using BenchmarkTools
+using Test
 
+"""
+    PartitionPair{T <: AbstractFloat}
+
+A lightweight, dedicated struct to replace generic `Vector{T}` pairs,
+optimizing memory layout and clarity.
+"""
+mutable struct PartitionPair{T <: AbstractFloat}
+    upper::T
+    lower::T
+end
+
+"""
+    PartitionState{T <: AbstractFloat}
+
+Manages the pre-allocated execution state and track results in place.
+"""
+mutable struct PartitionState{T <: AbstractFloat}
+    buffer::Vector{PartitionPair{T}}
+    active_length::Int
+
+    # Inner constructor to pre-allocate capacity cleanly
+    function PartitionState{T}(capacity::Int) where {T <: AbstractFloat}
+        buf = [PartitionPair{T}(zero(T), zero(T)) for _ in 1:capacity]
+        new{T}(buf, 0)
+    end
+end
+
+"""
+    progressiveFloatPartition!(state::PartitionState{T}, a::T, b::T; limit::Int=4, step_formula::Function) where {T <: AbstractFloat}
+
+Populates the custom `PartitionState` completely in-place without generating allocations.
+"""
+function progressiveFloatPartition!(
+    state::PartitionState{T}, 
+    a::T, 
+    b::T; 
+    limit::Int = 4, 
+    step_formula::Function = (up, low) -> up * 0.1
+) where {T <: AbstractFloat}
+    
+    state.active_length = 0
+    const_limit = limit 
+    lower = a
+    upper = b
+    res = upper
+    lastres = res
+    idx = 1
+    
+    zero_val = zero(T)
+    capacity = length(state.buffer)
+
+    while res >= lower && const_limit < 5
+        nonLinearPart = step_formula(upper, lower)
+        
+        # Safety assertion against infinite freeze loops
+        @assert nonLinearPart > zero_val "Loop Error: Step formula returned a non-positive value. Step must be > 0.0."
+
+        res = upper - nonLinearPart
+
+        if res >= lower
+            if idx <= capacity
+                pair = state.buffer[idx]
+                pair.upper = upper
+                pair.lower = res
+            else
+                # Fallback only if initial buffer allocation layout is exceeded
+                push!(state.buffer, PartitionPair{T}(upper, res))
+            end
+            
+            upper = res
+            lastres = res
+            idx += 1
+        else
+            if lastres > lower
+                if idx <= capacity
+                    pair = state.buffer[idx]
+                    pair.upper = upper
+                    pair.lower = lower
+                else
+                    push!(state.buffer, PartitionPair{T}(upper, lower))
+                end
+                idx += 1
+            end
+            break
+        end
+    end
+
+    # Update active structural length boundary tracking
+    state.active_length = idx - 1
+    return state
+end
